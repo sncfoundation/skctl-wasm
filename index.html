@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>skctl-wasm — kubectl in the browser</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      max-width: 900px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5;
+    }
+    h1 { font-size: 1.4rem; }
+    .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .4rem 0; }
+    label { min-width: 7rem; }
+    input, select { flex: 1; min-width: 12rem; padding: .35rem .5rem; font: inherit; }
+    button { padding: .35rem .8rem; font: inherit; cursor: pointer; }
+    pre {
+      background: #0000000d; border: 1px solid #8884; border-radius: 6px;
+      padding: 1rem; overflow-x: auto; white-space: pre; min-height: 4rem;
+    }
+    @media (prefers-color-scheme: dark) { pre { background: #ffffff0d; } }
+    .muted { opacity: .7; font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <h1>skctl-wasm &middot; kubectl in the browser</h1>
+  <p class="muted">
+    The <code>skctl</code> CLI compiled to WebAssembly. URL &amp; body building and
+    table rendering run in wasm; the browser does the <code>fetch</code>.
+  </p>
+
+  <div class="row">
+    <label for="url">WEBAPP_URL</label>
+    <input id="url" placeholder="https://script.google.com/macros/s/XXXX/exec" />
+  </div>
+  <div class="row">
+    <label for="token">TOKEN</label>
+    <input id="token" type="password" placeholder="super_secret" />
+  </div>
+  <div class="row">
+    <label for="kind">kind</label>
+    <select id="kind">
+      <option>deployments</option>
+      <option>pods</option>
+      <option>nodes</option>
+      <option>events</option>
+    </select>
+    <button id="get">skctl get</button>
+  </div>
+
+  <pre id="out">Loading wasm…</pre>
+
+  <script type="module">
+    // wasm-pack build --target web  emits ./pkg/skctl_wasm.js + .wasm
+    import init, { get_url, render_table } from './pkg/skctl_wasm.js';
+
+    const out = document.getElementById('out');
+    let ready = false;
+
+    init()
+      .then(() => { ready = true; out.textContent = 'Ready. Enter WEBAPP_URL + TOKEN, then "skctl get".'; })
+      .catch((e) => { out.textContent = 'Failed to load wasm: ' + e + '\n\nDid you run: wasm-pack build --target web ?'; });
+
+    document.getElementById('get').addEventListener('click', async () => {
+      if (!ready) { out.textContent = 'wasm not ready yet…'; return; }
+      const base = document.getElementById('url').value.trim();
+      const token = document.getElementById('token').value.trim();
+      const kind = document.getElementById('kind').value;
+      if (!base || !token) { out.textContent = 'Set WEBAPP_URL and TOKEN first.'; return; }
+
+      // Build the request URL inside wasm (same logic as the bash skctl).
+      const url = get_url(base, token, kind);
+      out.textContent = `GET ${kind}…`;
+      try {
+        const resp = await fetch(url);
+        const text = await resp.text();
+        if (!resp.ok) { out.textContent = `HTTP ${resp.status}\n${text}`; return; }
+        // Render the {items:[...]} body into a table inside wasm.
+        out.textContent = render_table(text, kind);
+      } catch (e) {
+        out.textContent = 'fetch failed: ' + e;
+      }
+    });
+  </script>
+</body>
+</html>
