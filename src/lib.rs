@@ -53,8 +53,15 @@ pub fn get_url(base: &str, token: &str, kind: &str) -> String {
 /// resulting body is `{"token","action":"apply","deployments":[...]}`.
 #[wasm_bindgen]
 pub fn apply_body(token: &str, deployments_json: &str) -> Result<String, JsError> {
+    build_apply_body(token, deployments_json).map_err(|e| JsError::new(&e))
+}
+
+/// Host-side core of [`apply_body`]: `JsError` can only be constructed on a
+/// wasm target, so the logic returns a plain `String` error and stays testable
+/// with `cargo test`.
+fn build_apply_body(token: &str, deployments_json: &str) -> Result<String, String> {
     let parsed: Value = serde_json::from_str(deployments_json)
-        .map_err(|e| JsError::new(&format!("invalid manifest JSON: {}", e)))?;
+        .map_err(|e| format!("invalid manifest JSON: {}", e))?;
 
     let deployments = match parsed.get("deployments") {
         Some(d) => d.clone(),
@@ -226,7 +233,7 @@ mod tests {
 
     #[test]
     fn apply_body_rejects_garbage() {
-        assert!(apply_body("t", "not json").is_err());
+        assert!(build_apply_body("t", "not json").is_err());
     }
 
     #[test]
